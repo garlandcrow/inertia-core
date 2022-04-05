@@ -1,6 +1,6 @@
 {
   "name": "@inertiajs/inertia",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "license": "MIT",
   "description": "A framework for creating server-driven single page apps.",
   "contributors": [
@@ -28,15 +28,15 @@
   "unpkg": "dist/index.umd.js",
   "types": "types/index.d.ts",
   "scripts": {
-    "build": "npm run build:bundler && npm run build:browser",
-    "build:bundler": "microbundle --format es,cjs",
-    "build:browser": "microbundle --format modern,umd --name Inertia --external none",
+    "build": "npm run clean && npm run build:cjs && npm run build:umd",
+    "build:cjs": "microbundle --format es,cjs",
+    "build:umd": "microbundle --format modern,umd --name Inertia --external none",
     "clean": "rm -rf types && rm -rf dist",
     "prepublishOnly": "npm run build",
     "watch": "microbundle watch --format cjs"
   },
   "dependencies": {
-    "axios": "^0.21.1",
+    "axios": "^0.26.0",
     "deepmerge": "^4.0.0",
     "qs": "^6.9.0"
   },

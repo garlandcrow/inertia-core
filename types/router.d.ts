@@ -11,7 +11,7 @@ export declare class Router {
         resolveComponent: PageResolver;
         swapComponent: PageHandler;
     }): void;
-    protected handleInitialPageVisit(page: Page): void;
+    protected handleInitialPageVisit(): void;
     protected setupEventListeners(): void;
     protected scrollRegions(): NodeListOf<Element>;
     protected handleScrollEvent(event: Event): void;

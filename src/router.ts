@@ -4,28 +4,34 @@ import { hasFiles } from './files'
 import { objectToFormData } from './formData'
 import { default as Axios, AxiosResponse } from 'axios'
 import { hrefToUrl, mergeDataIntoQueryString, urlWithoutHash } from './url'
-import { ActiveVisit, GlobalEvent, GlobalEventNames, GlobalEventResult, LocationVisit, Method, Page, PageHandler, PageResolver, PendingVisit, PreserveStateOption, RequestPayload, VisitId, VisitOptions } from './types'
+import { ActiveVisit, GlobalEvent, GlobalEventNames, GlobalEventResult, LocationVisit, Method, Page, PageHandler, PageResolver, PendingVisit, PreserveStateOption, RequestPayload, VisitId, VisitParams, VisitOptions } from './types'
 import { fireBeforeEvent, fireErrorEvent, fireExceptionEvent, fireFinishEvent, fireInvalidEvent, fireNavigateEvent, fireProgressEvent, fireStartEvent, fireSuccessEvent } from './events'
 
+const isServer = typeof window === 'undefined'
+
 export class Router {
+  protected page!: Page
   protected resolveComponent!: PageResolver
   protected swapComponent!: PageHandler
+  protected visitOptions!: VisitOptions
   protected activeVisit?: ActiveVisit
   protected visitId: VisitId = null
-  protected page!: Page
 
   public init({
     initialPage,
     resolveComponent,
     swapComponent,
+    visitOptions,
   }: {
     initialPage: Page,
     resolveComponent: PageResolver,
     swapComponent: PageHandler,
+    visitOptions: VisitOptions,
   }): void {
     this.page = initialPage
     this.resolveComponent = resolveComponent
     this.swapComponent = swapComponent
+    this.visitOptions = visitOptions
 
     if (this.isBackForwardVisit()) {
       this.handleBackForwardVisit(this.page)
@@ -146,11 +152,11 @@ export class Router {
   }
 
   protected isLocationVisitResponse(response: AxiosResponse): boolean {
-    return response && response.status === 409 && response.headers['x-inertia-location']
+    return !!(response && response.status === 409 && response.headers['x-inertia-location'])
   }
 
   protected isInertiaResponse(response: AxiosResponse): boolean {
-    return response?.headers['x-inertia']
+    return !!response?.headers['x-inertia']
   }
 
   protected createVisitId(): VisitId {
@@ -193,33 +199,42 @@ export class Router {
     }
   }
 
-  public visit(href: string|URL, {
-    method = Method.GET,
-    data = {},
-    replace = false,
-    preserveScroll = false,
-    preserveState = false,
-    only = [],
-    headers = {},
-    errorBag = '',
-    forceFormData = false,
-    onCancelToken = () => {},
-    onBefore = () => {},
-    onStart = () => {},
-    onProgress = () => {},
-    onFinish = () => {},
-    onCancel = () => {},
-    onSuccess = () => {},
-    onError = () => {},
-  }: VisitOptions = {}): void {
+  public visit(href: string|URL, params: VisitParams = {}): void {
+    const options: Required<VisitParams> = {
+      method: Method.GET,
+      data: {},
+      replace: false,
+      preserveScroll: false,
+      preserveState: false,
+      only: [],
+      headers: {},
+      errorBag: '',
+      forceFormData: false,
+      queryStringArrayFormat: 'brackets',
+      onCancelToken: () => {},
+      onBefore: () => {},
+      onStart: () => {},
+      onProgress: () => {},
+      onFinish: () => {},
+      onCancel: () => {},
+      onSuccess: () => {},
+      onError: () => {},
+      ... params,
+    }
+
     let url = typeof href === 'string' ? hrefToUrl(href) : href
+
+    const prepared = this.visitOptions(options, url) || options
+
+    const { method, replace, only, headers, errorBag, forceFormData, queryStringArrayFormat, onCancelToken, onBefore, onStart, onProgress, onFinish, onCancel, onSuccess, onError } = prepared
+    let { data, preserveScroll, preserveState } = prepared
 
     if ((hasFiles(data) || forceFormData) && !(data instanceof FormData)) {
       data = objectToFormData(data)
     }
 
     if (!(data instanceof FormData)) {
-      const [_href, _data] = mergeDataIntoQueryString(method, url, data)
+      const [_href, _data] = mergeDataIntoQueryString(method, url, data, queryStringArrayFormat)
       url = hrefToUrl(_href)
       data = _data
     }
@@ -235,6 +250,7 @@ export class Router {
       headers,
       errorBag,
       forceFormData,
+      queryStringArrayFormat,
       cancelled: false,
       completed: false,
       interrupted: false,
@@ -251,7 +267,7 @@ export class Router {
     this.saveScrollPositions()
 
     const visitId = this.createVisitId()
-    this.activeVisit = { ...visit, onCancelToken, onBefore, onStart, onProgress, onFinish, onCancel, onSuccess, onError, cancelToken: Axios.CancelToken.source() }
+    this.activeVisit = { ...visit, onCancelToken, onBefore, onStart, onProgress, onFinish, onCancel, onSuccess, onError, queryStringArrayFormat, cancelToken: Axios.CancelToken.source() }
 
     onCancelToken({
       cancel: () => {
@@ -413,46 +429,54 @@ export class Router {
     }
   }
 
-  public get(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitOptions, 'method'|'data'> = {}): void {
+  public get(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitParams, 'method'|'data'> = {}): void {
     return this.visit(url, { ...options, method: Method.GET, data })
   }
 
-  public reload(options: Exclude<VisitOptions, 'preserveScroll'|'preserveState'> = {}): void {
+  public reload(options: Exclude<VisitParams, 'preserveScroll'|'preserveState'> = {}): void {
     return this.visit(window.location.href, { ...options, preserveScroll: true, preserveState: true })
   }
 
-  public replace(url: URL|string, options: Exclude<VisitOptions, 'replace'> = {}): void {
+  public replace(url: URL|string, options: Exclude<VisitParams, 'replace'> = {}): void {
     console.warn(`Inertia.replace() has been deprecated and will be removed in a future release. Please use Inertia.${options.method ?? 'get'}() instead.`)
     return this.visit(url, { preserveState: true, ...options, replace: true })
   }
 
-  public post(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitOptions, 'method'|'data'> = {}): void {
+  public post(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitParams, 'method'|'data'> = {}): void {
     return this.visit(url, { preserveState: true, ...options, method: Method.POST, data })
   }
 
-  public put(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitOptions, 'method'|'data'> = {}): void {
+  public put(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitParams, 'method'|'data'> = {}): void {
     return this.visit(url, { preserveState: true, ...options, method: Method.PUT, data })
   }
 
-  public patch(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitOptions, 'method'|'data'> = {}): void {
+  public patch(url: URL|string, data: RequestPayload = {}, options: Exclude<VisitParams, 'method'|'data'> = {}): void {
     return this.visit(url, { preserveState: true, ...options, method: Method.PATCH, data })
   }
 
-  public delete(url: URL|string, options: Exclude<VisitOptions, 'method'> = {}): void {
+  public delete(url: URL|string, options: Exclude<VisitParams, 'method'> = {}): void {
     return this.visit(url, { preserveState: true, ...options, method: Method.DELETE })
   }
 
   public remember(data: unknown, key = 'default'): void {
+    if (isServer) {
+      return
+    }
+
     this.replaceState({
       ...this.page,
       rememberedState: {
-        ...this.page.rememberedState,
+        ...this.page?.rememberedState,
         [key]: data,
       },
     })
   }
 
   public restore(key = 'default'): unknown {
+    if (isServer) {
+      return
+    }
+
     return window.history.state?.rememberedState?.[key]
   }
 
